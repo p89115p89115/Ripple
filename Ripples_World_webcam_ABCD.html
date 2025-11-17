@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<title>Ripples — A/B/C/D 版面（ALL 依附圖比例）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html,body{
+    margin:0;
+    height:100%;
+    background:#003366; /* 深藍底 */
+    overflow:hidden;
+    font-family:system-ui,-apple-system;
+  }
+  #world{
+    position:fixed;
+    left:0;
+    top:0;
+    transform-origin:top left;
+    background:#003366;          /* 深藍底 */
+    background-size:cover;
+    background-repeat:repeat;    /* 讓格子可以鋪滿 */
+    will-change:transform;
+  }
+  .badge{position:fixed;left:10px;top:10px;padding:6px+10px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:12px;pointer-events:none}
+  svg.cover{position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none}
+  .panel{position:fixed;right:12px;bottom:12px;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);color:#e7f3ff;border-radius:12px;padding:12px;backdrop-filter: blur(6px);min-width:720px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .panel h3{margin:0 0 8px 0;font-size:14px}
+  .panel label{font-size:12px;opacity:.9}
+  .panel input[type=range]{width:110px}
+  .btn{background:#74d1ff;border:none;color:#01263a;font-weight:700;border-radius:10px;padding:8px 10px;cursor:pointer}
+  .btn.sec{background:#2a3d52;color:#d0e7ff}
+  .mono{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:12px}
+  .small{font-size:11px;opacity:.85}
+  .pv{position:fixed;right:12px;top:12px;display:flex;gap:8px}
+  .pv .box{background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:6px 6px 2px 6px;color:#cde6ff}
+  .pv video{width:160px;height:120px;background:#000}
+  .pv .title{font:12px ui-monospace;margin-bottom:4px}
+  .hide{display:none!important}
+
+  /* 全域 UI 顯示/隱藏固定按鈕 */
+  #toggleUIPanel{
+    position:fixed; left:10px; top:46px; z-index:10000;
+    background:#ffc24b; color:#102331; border:none; border-radius:10px;
+    padding:6px 10px; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,.25);
+  }
+</style>
+</head>
+<body>
+<div id="world"></div>
+<div id="badge" class="badge"></div>
+
+<!-- 一鍵隱藏/顯示整個控制面板 -->
+<button id="toggleUIPanel" title="顯示/隱藏控制面板（鍵盤 U）">UI</button>
+
+<svg class="cover" id="cover" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <mask id="windowMask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+      <rect id="maskBg" x="0" y="0" width="0" height="0" fill="white"></rect>
+      <rect id="holeA" x="0" y="0" width="0" height="0" fill="black"></rect>
+      <rect id="holeB" x="0" y="0" width="0" height="0" fill="black"></rect>
+      <!-- 新增：C、D 的洞口 -->
+      <rect id="holeC" x="0" y="0" width="0" height="0" fill="black"></rect>
+      <rect id="holeD" x="0" y="0" width="0" height="0" fill="black"></rect>
+    </mask>
+  </defs>
+  <!-- 外面被遮罩的區域也用深藍色 -->
+  <rect id="coverRect" x="0" y="0" width="0" height="0" fill="#003366" mask="url(#windowMask)"></rect>
+</svg>
+
+<div class="pv">
+  <div class="box" id="pvBoxA"><div class="title">Cam A 預覽</div><video id="pvA" playsinline muted></video></div>
+  <div class="box" id="pvBoxB"><div class="title">Cam B 預覽</div><video id="pvB" playsinline muted></video></div>
+  <!-- C / D 不用攝影機，因此不做預覽 -->
+</div>
+
+<div class="panel" id="panel">
+  <h3>A/B/C/D 版面（A=45°；C/D 無相機；ALL 依附圖比例開窗）</h3>
+  <div class="row small"><label><input type="checkbox" id="toggleABUI"> 顯示 Cam A/B 控制區</label></div>
+  <div class="row small">滑鼠「滑過」有輕波；點擊是較大的水波。A/B 攝影機偵測維持原邏輯；C/D 僅接收水波。</div>
+  <div class="row" id="rowA">
+    <label>Cam A Index：</label><select id="idxA"></select>
+    <button class="btn" id="startA">Start A</button>
+    <button class="btn sec" id="stopA">Stop A</button>
+    <button class="btn" id="testA">Test Drop A</button>
+    <span class="mono" id="statA">idle</span>
+  </div>
+  <div class="row" id="rowB">
+    <label>Cam B Index：</label><select id="idxB"></select>
+    <button class="btn" id="startB">Start B</button>
+    <button class="btn sec" id="stopB">Stop B</button>
+    <button class="btn" id="testB">Test Drop B</button>
+    <span class="mono" id="statB">idle</span>
+  </div>
+  <div class="row">
+    <label>Threshold</label><input type="range" id="thresh" min="5" max="80" step="1" value="28">
+    <label>MinPixels</label><input type="range" id="minpix" min="20" max="1000" step="10" value="140">
+    <label>Smooth</label><input type="range" id="smooth" min="0" max="0.9" step="0.05" value="0.2">
+    <label>Hover Rate(ms)</label><input type="range" id="hoverRate" min="16" max="200" step="4" value="40">
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/sirxemic/jquery.ripples/dist/jquery.ripples.min.js"></script>
+<script>
+/* ===== 世界放大 1.2 倍 ===== */
+const WORLD = { W:312, H:204 };
+const SCALE = 10, PX = u => Math.round(u * SCALE);
+
+/* ===== A/B/C/D 放大後 ===== */
+const A_cfg = {
+  x: 20,
+  y: 96,
+  w: 115,
+  h: 67,
+  rot: 45
+};
+
+const D_cfg = {
+  x: 98,
+  y: 0,
+  w: 115,
+  h: 67,
+  rot: 0
+};
+
+// Camera A 的水波觸發範圍（世界座標）
+const CamA_range = {
+  x: 5,
+  y: 170,
+  w: 115,
+  h: 30,
+  rot: 45
+};
+
+// Camera B 的水波觸發範圍（世界座標）
+const CamB_range = {
+  x: 150,
+  y: 180,
+  w: 115,
+  h: 30,
+  rot: 0
+};
+
+const C_cfg = {
+  x: 190,
+  y: 48,
+  w: 115,
+  h: 67,
+  rot: 0
+};
+
+const B_cfg = {
+  x: 150,
+  y: 125,
+  w: 115,
+  h: 67,
+  rot: 0
+};
+
+/* 檢視 */
+const VIEW = (new URLSearchParams(location.search).get('view') || 'ALL').toUpperCase();
+const WIN_ID = Math.random().toString(36).slice(2);
+document.getElementById('badge').textContent = 'VIEW: ' + VIEW + ' | Channel: ripples-world-v1';
+
+// ==== 背景 ====
+// 深藍色 + 小格子 pattern，會重複鋪滿
+const BG_SVG = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+  <defs>
+    <!-- 深藍漸層底 -->
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0080FF"/>
+      <stop offset="100%" stop-color="#000093"/>
+    </linearGradient>
+
+    <!-- 小格子 pattern -->
+    <pattern id="p" width="5" height="5" patternUnits="userSpaceOnUse">
+      <rect width="5" height="5" fill="url(#g)"/>
+      <!-- 橫線 -->
+      <rect y="0"  width="5" height="1" fill="rgba(255,255,255,0.12)"/>
+      <rect y="5" width="5" height="1" fill="rgba(255,255,255,0.08)"/>
+      <!-- 直線 -->
+      <rect x="0"  width="1" height="5" fill="rgba(255,255,255,0.12)"/>
+      <rect x="5" width="1" height="5" fill="rgba(255,255,255,0.08)"/>
+    </pattern>
+  </defs>
+
+  <rect width="100%" height="100%" fill="url(#p)"/>
+</svg>
+`);
+const BG_URL = `data:image/svg+xml;charset=utf-8,${BG_SVG}`;
+
+const world = document.getElementById('world');
+world.style.width  = PX(WORLD.W)+'px';
+world.style.height = PX(WORLD.H)+'px';
+world.style.backgroundImage = `url("${BG_URL}")`;
+try{
+  $(world).ripples({
+    resolution: 384,
+    dropRadius: 22,
+    perturbance: 0.06,
+    interactive: true,
+    imageUrl: BG_URL
+  });
+}catch(e){ console.warn(e); }
+
+/* ===== 幾何工具 ===== */
+function deg2rad(d){ return d*Math.PI/180; }
+function rotBBox(cfg){
+  // 以中心為原點旋轉，回傳旋轉後的 AABB（世界單位）
+  const cx = cfg.x + cfg.w/2, cy = cfg.y + cfg.h/2;
+  const c = Math.cos(deg2rad(cfg.rot||0)), s = Math.sin(deg2rad(cfg.rot||0));
+  const pts = [
+    {dx:-cfg.w/2, dy:-cfg.h/2}, {dx:cfg.w/2, dy:-cfg.h/2},
+    {dx: cfg.w/2, dy: cfg.h/2}, {dx:-cfg.w/2, dy: cfg.h/2}
+  ].map(p=>({x: cx + p.dx*c - p.dy*s, y: cy + p.dx*s + p.dy*c}));
+  const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+  const minX = Math.min.apply(null,xs), maxX = Math.max.apply(null,xs);
+  const minY = Math.min.apply(null,ys), maxY = Math.max.apply(null,ys);
+  return {minX, minY, w:maxX-minX, h:maxY-minY, cx, cy};
+}
+function fullscreenTransformFor(cfg){
+  // 讓「旋轉後的外接矩形」滿版
+  const vw = innerWidth, vh = innerHeight;
+  const bb = rotBBox(cfg);
+  const rw = PX(bb.w), rh = PX(bb.h);
+  const s = Math.max(vw/rw, vh/rh);
+  const tx = -PX(bb.minX) * s;
+  const ty = -PX(bb.minY) * s;
+  return { s, tx, ty };
+}
+function applyFullscreen(cfg){
+  const { s, tx, ty } = fullscreenTransformFor(cfg);
+  world.style.left = '0px';
+  world.style.top = '0px';
+
+  /* 不在這裡做 180° 旋轉，只做平移 + 縮放 */
+  world.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+
+  // 修正 coverRect
+  const cv = document.getElementById('cover');
+  const cr = document.getElementById('coverRect');
+  if(cv) cv.style.display = 'none';
+  if(cr){
+    cr.setAttribute('width', 0);
+    cr.setAttribute('height', 0);
+  }
+}
+
+/* ALL 開窗（A/B/C/D） */
+function placeHole(el, cfg){
+  const wr = world.getBoundingClientRect();
+  const x = wr.left + PX(cfg.x);
+  const y = wr.top  + PX(cfg.y);
+  const w = PX(cfg.w);
+  const h = PX(cfg.h);
+  el.setAttribute('x', x);  el.setAttribute('y', y);
+  el.setAttribute('width', w); el.setAttribute('height', h);
+  // 以中心旋轉，讓 A 能 45°
+  const cx = wr.left + PX(cfg.x + cfg.w/2);
+  const cy = wr.top  + PX(cfg.y + cfg.h/2);
+  el.setAttribute('transform', `rotate(${cfg.rot||0} ${cx} ${cy})`);
+}
+function applyAllView(){
+  world.style.left = '50%'; world.style.top = '50%';
+  world.style.transform = 'translate(-50%,-50%)';
+  document.getElementById('cover').style.display = '';
+  const coverRect = document.getElementById('coverRect');
+  const maskBg    = document.getElementById('maskBg');
+  coverRect.setAttribute('width',  innerWidth);
+  coverRect.setAttribute('height', innerHeight);
+  maskBg.setAttribute('width',  innerWidth);
+  maskBg.setAttribute('height', innerHeight);
+  placeHole(document.getElementById('holeA'), A_cfg);
+  placeHole(document.getElementById('holeB'), B_cfg);
+  placeHole(document.getElementById('holeC'), C_cfg);
+  placeHole(document.getElementById('holeD'), D_cfg);
+}
+function layout(){
+  /* 先把 body 的 transform 清掉，避免不同 view 互相影響 */
+  document.body.style.transform = '';
+  document.body.style.transformOrigin = '';
+
+  if (VIEW === 'A'){
+    applyFullscreen(A_cfg);
+    world.style.border = "none";    // ★ 只在 A 隱藏外框
+    document.getElementById('rowB').classList.add('hide');
+    document.getElementById('pvBoxB').classList.add('hide');
+
+  } else if (VIEW === 'B'){
+    applyFullscreen(B_cfg);
+    document.getElementById('rowA').classList.add('hide');
+    document.getElementById('pvBoxA').classList.add('hide');
+  } else if (VIEW === 'C'){
+    applyFullscreen(C_cfg);
+    // A/B 相機列隱藏
+    document.getElementById('rowA').classList.add('hide');
+    document.getElementById('rowB').classList.add('hide');
+    document.getElementById('pvBoxA').classList.add('hide');
+    document.getElementById('pvBoxB').classList.add('hide');
+  } else if (VIEW === 'D'){
+    applyFullscreen(D_cfg);
+    document.getElementById('rowA').classList.add('hide');
+    document.getElementById('rowB').classList.add('hide');
+    document.getElementById('pvBoxA').classList.add('hide');
+    document.getElementById('pvBoxB').classList.add('hide');
+  } else { // ALL
+    applyAllView();
+  }
+}
+layout(); addEventListener('resize', layout);
+
+/* ====== Broadcast 通道 + 丟水波 ====== */
+let chan = null; try{ chan = new BroadcastChannel('ripples-world-v1'); }catch(e){}
+function dropAtWorldUnits(wxu, wyu, big=false){
+  const x = PX(wxu), y = PX(wyu);
+  const r = big?22:10, s = big?0.14:0.05;
+  try{ $(world).ripples('drop', x, y, r, s); }catch(e){}
+}
+if(chan){
+  chan.onmessage = (ev)=>{
+    const m = ev.data||{}; if(m.origin===WIN_ID) return;
+    if(m.type==='drop'){ dropAtWorldUnits(m.wxu, m.wyu, !!m.big); }
+  };
+}
+
+/* ====== 相機 UI（A/B 保留；C/D 不使用） ====== */
+const ui = {
+  idxA: document.getElementById('idxA'),
+  idxB: document.getElementById('idxB'),
+  startA: document.getElementById('startA'),
+  stopA:  document.getElementById('stopA'),
+  startB: document.getElementById('startB'),
+  stopB:  document.getElementById('stopB'),
+  testA:  document.getElementById('testA'),
+  testB:  document.getElementById('testB'),
+  statA:  document.getElementById('statA'),
+  statB:  document.getElementById('statB'),
+  thresh: document.getElementById('thresh'),
+  minpix: document.getElementById('minpix'),
+  smooth: document.getElementById('smooth'),
+  hoverRate: document.getElementById('hoverRate'),
+  pvA:    document.getElementById('pvA'),
+  pvB:    document.getElementById('pvB'),
+};
+const toggleBox = document.getElementById('toggleABUI');
+if(toggleBox){
+  toggleBox.addEventListener('change', ()=>{
+    ['rowA','rowB','pvBoxA','pvBoxB'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      if(toggleBox.checked) el.classList.remove('hide');
+      else el.classList.add('hide');
+    });
+  });
+}
+['rowA','rowB','pvBoxA','pvBoxB'].forEach(id=>{
+  try{ document.getElementById(id).classList.add('hide'); }catch(e){}
+});
+const panel = document.getElementById('panel');
+const uiBtn = document.getElementById('toggleUIPanel');
+function setPanelVisible(v){ panel.classList.toggle('hide', !v); uiBtn.classList.toggle('hide', !v); document.getElementById('badge').classList.toggle('hide', !v) }
+let panelVisible = true;
+uiBtn.addEventListener('click', ()=>{ panelVisible=!panelVisible; setPanelVisible(panelVisible); });
+window.addEventListener('keydown', (e)=>{ if(e.key==='u' || e.key==='U'){ panelVisible=!panelVisible; setPanelVisible(panelVisible); }});
+
+/* 相機列舉與追蹤（沿用 A/B） */
+let cachedCams = [];
+async function loadCams(){
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    cachedCams = devs.filter(d=>d.kind==='videoinput');
+    function fill(sel){ sel.innerHTML=''; cachedCams.forEach((c,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=(c.label||`Camera ${i}`)+` (idx ${i})`; sel.appendChild(o); }); }
+    if(VIEW!=='B' && ui.idxA){ fill(ui.idxA); if(cachedCams.length>0) ui.idxA.value=0; }
+    if(VIEW!=='A' && ui.idxB){ fill(ui.idxB); if(cachedCams.length>1) ui.idxB.value=1; }
+  }catch(e){ console.warn('enumerateDevices failed', e); }
+}
+loadCams();
+navigator.mediaDevices.addEventListener?.('devicechange', loadCams);
+
+class CamTracker{
+  constructor(which, cfg, previewEl, statEl){
+    this.which=which; this.cfg=cfg; this.pv=previewEl; this.statEl=statEl;
+    this.stream=null; this.running=false; this.raf=null;
+    this.lastFrame=null; this.lastCentroid=null; this.firstDetected=false;
+    this.video=document.createElement('video'); this.video.playsInline=true; this.video.muted=true; this.video.style.display='none'; document.body.appendChild(this.video);
+    this.proc=document.createElement('canvas'); this.ctx=this.proc.getContext('2d',{willReadFrequently:true});
+  }
+  setStat(t){ this.statEl.textContent=t; }
+  resizeProc(){
+    const w = PX(this.cfg.w), h = PX(this.cfg.h);
+    const scale=0.5;
+    this.proc.width=Math.max(16,Math.round(w*scale));
+    this.proc.height=Math.max(16,Math.round(h*scale));
+    this.lastFrame=null;
+  }
+  async start(idx){
+    if(this.running) return;
+    const c = cachedCams[idx];
+    if(!c){ alert(`找不到 Camera index ${idx}`); return; }
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: c.deviceId?{exact:c.deviceId}:undefined }, audio:false });
+      this.stream=stream;
+    }catch(e){ alert(`[${this.which}] 開啟失敗：`+e.name); return; }
+    this.video.srcObject=this.stream; await this.video.play();
+    this.pv.srcObject=this.stream; this.pv.play().catch(()=>{});
+    this.resizeProc(); this.running=true; this.setStat('capturing'); this.loop();
+  }
+  stop(){
+    this.running=false;
+    if(this.raf) cancelAnimationFrame(this.raf);
+    if(this.stream){ this.stream.getTracks().forEach(t=>t.stop()); this.stream=null; }
+    this.pv.srcObject=null; this.setStat('idle');
+  }
+  loop(){
+    if(!this.running) return;
+    const pw=this.proc.width, ph=this.proc.height;
+    this.ctx.drawImage(this.video,0,0,pw,ph);
+    const img=this.ctx.getImageData(0,0,pw,ph), d=img.data, gray=new Uint8ClampedArray(pw*ph);
+    for(let i=0,j=0;i<d.length;i+=4,j++){ gray[j]=(d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114)|0; }
+    const thr=parseInt(ui.thresh.value,10); let cx=0,cy=0,count=0;
+    if (this.lastFrame) {
+      for (let k = 0; k < gray.length; k++) {
+        const diff = Math.abs(gray[k] - this.lastFrame[k]);
+        if (diff > thr) {
+          const x = (k % pw), y = (k / pw | 0);
+
+          cx += x;
+          cy += y;
+          count++;
+        }
+      }
+    }
+    this.lastFrame=gray;
+    const minpix=parseInt(ui.minpix.value,10);
+    if(count>=minpix){
+      const localPx = { x:(cx/count)*(PX(this.cfg.w)/pw), y:(cy/count)*(PX(this.cfg.h)/ph) };
+      const a=Math.min(0.9,Math.max(0,parseFloat(ui.smooth.value)));
+      const sp=this.lastCentroid
+        ? {
+            x: this.lastCentroid.x + (localPx.x - this.lastCentroid.x) * (1 - a),
+            y: this.lastCentroid.y + (localPx.y - this.lastCentroid.y) * (1 - a)
+          }
+        : localPx;
+      this.lastCentroid = sp;
+
+      // 根據攝影機 A / B，決定水波要落在哪一塊世界區域
+      let R;
+      if (this.which === 'A') {
+        R = CamA_range;
+      } else if (this.which === 'B') {
+        R = CamB_range;
+      } else {
+        // 其他情況（例如未來擴充）就回退到原本 cfg 設定
+        R = this.cfg;
+      }
+
+      // sp 是在原本 cfg 視窗中的像素位置，先轉成 0~1
+      const normX = sp.x / PX(this.cfg.w);
+      const normY = sp.y / PX(this.cfg.h);
+
+      // === 新版：依照 R.rot 旋轉後再丟到世界座標 ===
+      const angle = deg2rad(R.rot || 0);
+      const cw = PX(R.w);
+      const ch = PX(R.h);
+
+      // 以 Cam 範圍中心為原點的局部座標（未旋轉）
+      const localX = (normX - 0.5) * cw;
+      const localY = (normY - 0.5) * ch;
+
+      // 套用旋轉
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      const rx = localX * cosA - localY * sinA;
+      const ry = localX * sinA + localY * cosA;
+
+      // 再加回世界中的中心點
+      const centerX = PX(R.x + R.w / 2);
+      const centerY = PX(R.y + R.h / 2);
+
+      const worldPx = {
+        x: centerX + rx,
+        y: centerY + ry
+      };
+
+      const wxu = worldPx.x / SCALE, wyu = worldPx.y / SCALE;
+      const big = !this.firstDetected;
+      dropAtWorldUnits(wxu, wyu, big);
+      try{ chan?.postMessage({ type:'drop', wxu, wyu, big, origin: WIN_ID }); }catch(e){}
+      this.firstDetected=true;
+    }else{ this.firstDetected=false; }
+    this.raf=requestAnimationFrame(this.loop.bind(this));
+  }
+}
+const camA = new CamTracker('A', A_cfg, document.getElementById('pvA'), document.getElementById('statA'));
+const camB = new CamTracker('B', B_cfg, document.getElementById('pvB'), document.getElementById('statB'));
+if(VIEW!=='B'){
+  document.getElementById('startA').addEventListener('click', ()=> camA.start(parseInt(document.getElementById('idxA').value,10)));
+  document.getElementById('stopA').addEventListener('click', ()=> camA.stop());
+  document.getElementById('testA').addEventListener('click', ()=>{
+    const wxu = A_cfg.x + A_cfg.w/2, wyu = A_cfg.y + A_cfg.h/2; dropAtWorldUnits(wxu, wyu, true);
+    try{ chan?.postMessage({ type:'drop', wxu, wyu, big:true, origin: WIN_ID }); }catch(e){}
+  });
+}
+if(VIEW!=='A'){
+  document.getElementById('startB').addEventListener('click', ()=> camB.start(parseInt(document.getElementById('idxB').value,10)));
+  document.getElementById('stopB').addEventListener('click', ()=> camB.stop());
+  document.getElementById('testB').addEventListener('click', ()=>{
+    const wxu = B_cfg.x + B_cfg.w/2, wyu = B_cfg.y + B_cfg.h/2; dropAtWorldUnits(wxu, wyu, true);
+    try{ chan?.postMessage({ type:'drop', wxu, wyu, big:true, origin: WIN_ID }); }catch(e){}
+  });
+}
+
+/* ===== 滑鼠互動（支援旋轉矩形命中測試） ===== */
+function currentScale(){
+  const wr = world.getBoundingClientRect();
+  return wr.width / world.offsetWidth;
+}
+function worldUnitsFromEvent(e){
+  const wr = world.getBoundingClientRect();
+  const s = currentScale();
+  const lx = e.clientX - wr.left;
+  const ly = e.clientY - wr.top;
+  let wxu = (lx / s) / SCALE;
+  let wyu = (ly / s) / SCALE;
+
+  // ★ 已移除 A 專用偏移，避免各視角座標跑掉
+
+  // 限制在世界邊界內
+  wxu = Math.max(0, Math.min(WORLD.W, wxu));
+  wyu = Math.max(0, Math.min(WORLD.H, wyu));
+
+  return { wxu, wyu, s };
+}
+function insideRotRect(wxu, wyu, cfg){
+  const ang = deg2rad(cfg.rot||0);
+  const cx = cfg.x + cfg.w/2, cy = cfg.y + cfg.h/2;
+  const dx = wxu - cx, dy = wyu - cy;
+  const c = Math.cos(-ang), s = Math.sin(-ang);
+  const rx = dx*c - dy*s, ry = dx*s + dy*c;
+  return Math.abs(rx) <= cfg.w/2 && Math.abs(ry) <= cfg.h/2;
+}
+function insideAny(wxu,wyu){
+  return insideRotRect(wxu,wyu,A_cfg) || insideRotRect(wxu,wyu,B_cfg)
+      || insideRotRect(wxu,wyu,C_cfg) || insideRotRect(wxu,wyu,D_cfg);
+}
+
+let lastHoverTime = 0;
+world.addEventListener('pointermove', (e)=>{
+  const now = performance.now();
+  const rate = parseInt(ui.hoverRate.value,10) || 40;
+  if(now - lastHoverTime < rate) return;
+  const { wxu, wyu } = worldUnitsFromEvent(e);
+
+  // 單視角：
+  //   A：只吃 A 菱形
+  //   B/C/D：整個畫面都吃（不再限制在各自小矩形）
+  if (VIEW === 'A' && !insideRotRect(wxu, wyu, A_cfg)) return;
+
+  // ALL 視角才檢查是否在任一窗格內
+  if (VIEW === 'ALL' && !insideAny(wxu,wyu)) return;
+
+  lastHoverTime = now;
+  dropAtWorldUnits(wxu, wyu, false);
+  try{ chan?.postMessage({ type:'drop', wxu, wyu, big:false, origin: WIN_ID }); }catch(e){}
+});
+world.addEventListener('pointerdown', (e)=>{
+  const { wxu, wyu } = worldUnitsFromEvent(e);
+
+  if (VIEW === 'A' && !insideRotRect(wxu, wyu, A_cfg)) return;
+  if (VIEW === 'ALL' && !insideAny(wxu,wyu)) return;
+
+  dropAtWorldUnits(wxu, wyu, true);
+  try{ chan?.postMessage({ type:'drop', wxu, wyu, big:true, origin: WIN_ID }); }catch(e){}
+});
+</script>
+
+<!-- ====== 既有：JSON Import + Replay（保留） ====== -->
+<script>
+/* ——以下段落完全保留你原本的「匯入/重播滑鼠路徑」—— */
+(function(){
+  const panel = document.getElementById('panel');
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.id = 'rowImport';
+  row.innerHTML = `
+    <label>Import Mouse JSON</label>
+    <input type="file" id="jsonFile" accept=".json">
+    <button class="btn" id="playJSON">Play</button>
+    <button class="btn sec" id="stopJSON">Stop</button>
+    <label>Speed×</label><input type="range" id="replaySpeed" min="0.25" max="4" step="0.25" value="1">
+    <label class="small"><input type="checkbox" id="autoFit" checked> Auto-Fit</label>
+    <label class="small"><input type="checkbox" id="useZ" checked> Use Z as time</label>
+    <label class="small"><input type="checkbox" id="axisZasY"> Use Z for Y-axis</label>
+    <canvas id="replayTrack" width="260" height="150" style="border:1px solid rgba(255,255,255,0.2); border-radius:8px; margin-left:8px;"></canvas>
+    <label>Offset X</label><input type="range" id="offsetX" min="-100" max="100" step="1" value="0">
+    <label>Offset Y</label><input type="range" id="offsetY" min="-100" max="100" step="1" value="0">
+  `;
+  panel.appendChild(row);
+
+  const uiImp = {
+    file: row.querySelector('#jsonFile'),
+    play: row.querySelector('#playJSON'),
+    stop: row.querySelector('#stopJSON'),
+    speed: row.querySelector('#replaySpeed'),
+    autoFit: row.querySelector('#autoFit'),
+    useZ: row.querySelector('#useZ'),
+    axisZasY: row.querySelector('#axisZasY'),
+    offsetX: row.querySelector('#offsetX'),
+    offsetY: row.querySelector('#offsetY'),
+  };
+
+  const WORLD_W = WORLD.W, WORLD_H = WORLD.H;
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  const trackCanvas = row.querySelector('#replayTrack');
+  const trackCtx = trackCanvas.getContext('2d');
+  function trackClear(){
+    trackCtx.clearRect(0,0,trackCanvas.width,trackCanvas.height);
+    trackCtx.lineWidth = 1;
+    trackCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+    trackCtx.strokeRect(0.5,0.5,trackCanvas.width-1,trackCanvas.height-1);
+  }
+  function worldToTrack(x,y){
+    return {
+      x: (x / WORLD_W) * (trackCanvas.width - 8) + 4,
+      y: (y / WORLD_H) * (trackCanvas.height - 8) + 4
+    };
+  }
+  trackClear();
+
+  function computeBBox(points){
+    let minX= Infinity, minY= Infinity, maxX=-Infinity, maxY=-Infinity;
+    for(const p of points){
+      if(!isFinite(p.x) || !isFinite(p.y)) continue;
+      if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+      if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+    }
+    return {minX, minY, maxX, maxY, w: maxX-minX, h: maxY-minY};
+  }
+  function makeMapper(allPts){
+    const bbox = computeBBox(allPts);
+    const within = allPts.slice(0, Math.min(500, allPts.length)).filter(p=> p.x>=-5 && p.x<=WORLD_W+5 && p.y>=-5 && p.y<=WORLD_H+5 ).length;
+    if(within >= Math.min(200, Math.floor(allPts.length*0.7))){
+      return (p)=>({ x: clamp(p.x, 0, WORLD_W), y: clamp(p.y, 0, WORLD_H) });
+    }
+    const SCALE_GUESS = typeof SCALE!=='undefined' ? SCALE : 10;
+    const divided = allPts.slice(0, Math.min(500, allPts.length)).filter(p=> {
+      const x = p.x / SCALE_GUESS, y = p.y / SCALE_GUESS;
+      return x>=-5 && x<=WORLD_W+5 && y>=-5 && y<=WORLD_H+5;
+    }).length;
+    if(divided >= Math.min(200, Math.floor(allPts.length*0.7))){
+      return (p)=>({ x: clamp(p.x / SCALE_GUESS, 0, WORLD_W), y: clamp(p.y / SCALE_GUESS, 0, WORLD_H) });
+    }
+    const pad = 1;
+    const sx = (WORLD_W - pad*2) / (bbox.w || 1);
+    const sy = (WORLD_H - pad*2) / (bbox.h || 1);
+    const s = Math.min(sx, sy);
+    const ox = -bbox.minX, oy = -bbox.minY;
+    return (p)=>({ x: clamp((p.x + ox) * s + pad, 0, WORLD_W), y: clamp((p.y + oy) * s + pad, 0, WORLD_H) });
+  }
+
+  class ImportReplayer{
+    constructor(){
+      this.abort = false;
+      this.loaded = null;
+      this.mapper = null;
+      this.totalPoints = 0;
+      this.axes = { useZasY: false };
+    }
+    stop(){ this.abort = true; }
+
+    async loadFile(file){
+      const text = await file.text();
+      let data;
+      try{ data = JSON.parse(text); }
+      catch(e){ alert('JSON 解析失敗：' + e.message); return null; }
+      const strokes = data.strokesWorld || data.strokes || [];
+      if(!Array.isArray(strokes) || strokes.length===0){
+        alert('看起來沒有 strokesWorld/strokes 資料。'); return null;
+      }
+
+      const allPts = [];
+      for(const s of strokes){
+        const pts = s.points || [];
+        for(const p of pts){
+          if(p && typeof p.x==='number'){
+            allPts.push({x:p.x, y:(typeof p.y==='number'?p.y:0), z:(typeof p.z==='number'?p.z:0)});
+          }
+        }
+      }
+      if(allPts.length===0){ alert('檔案中沒有 points。'); return null; }
+
+      const variance = (arr)=>{
+        if(arr.length===0) return 0;
+        const m = arr.reduce((a,b)=>a+b,0)/arr.length;
+        return arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+      };
+      const xs = allPts.map(p=>p.x), ys = allPts.map(p=>p.y), zs = allPts.map(p=>p.z);
+      const varY = variance(ys), varZ = variance(zs);
+      const EPS = 1e-6;
+      const useZasY_auto = (varY < EPS) && (varZ > EPS*100);
+      this.axes.useZasY = uiImp.axisZasY.checked || useZasY_auto;
+
+      const allPts2 = allPts.map(p=> ({ x: p.x, y: (this.axes.useZasY ? p.z : p.y) }));
+      this.mapper = uiImp.autoFit.checked ? makeMapper(allPts2) : (p)=>({x: clamp(p.x,0,WORLD_W), y: clamp(this.axes.useZasY ? p.z : p.y, 0,WORLD_H)});
+      this.loaded = { strokes };
+      this.totalPoints = allPts.length;
+      return this.loaded;
+    }
+
+    async play(){
+      trackClear();
+      if(!this.loaded) { alert('請先選取 JSON 檔。'); return; }
+      this.abort = false;
+      const speed = parseFloat(uiImp.speed.value) || 1;
+      const useZtime = uiImp.useZ.checked && !this.axes.useZasY;
+
+      for(const s of this.loaded.strokes){
+        if(this.abort) break;
+        const pts = (s.points||[]).map(p=> ({...p}));
+        if(pts.length===0) continue;
+
+        const clicks = (s.clicks||[]).filter(c=> (c.type==='down' || c.type==='click'));
+        const clickCount = clicks.length;
+        let clickIdx = 0;
+        let nextClickProg = clickCount>0 ? 1/(clickCount+1) : Infinity;
+
+        let traveled = 0, totalLen = 0;
+        for(let i=1;i<pts.length;i++){
+          const a=pts[i-1], b=pts[i];
+          const ay = this.axes.useZasY ? a.z : a.y;
+          const by = this.axes.useZasY ? b.z : b.y;
+          totalLen += Math.hypot((b.x-a.x),(by-ay)) || 1;
+        }
+
+        let lastT=null;
+        for(let i=0;i<pts.length;i++){
+          if(this.abort) break;
+          const p = pts[i];
+          const ySel = this.axes.useZasY ? p.z : p.y;
+          const mapped = this.mapper({x:p.x, y:ySel});
+
+          // 90° 順時針旋轉（以世界座標邊界為基準）
+          (function(){
+            const W = WORLD_W, H = WORLD_H;
+            const u = Math.max(0, Math.min(1, mapped.x / W));
+            const v = Math.max(0, Math.min(1, mapped.y / H));
+            const ru = v;
+            const rv = 1 - u;
+            window.__rotX = ru * W;
+            window.__rotY = rv * H;
+          })();
+          const rotated = {
+            x: Math.max(0, Math.min(WORLD_W, window.__rotX)),
+            y: Math.max(0, Math.min(WORLD_H, window.__rotY))
+          };
+
+          // 偏移
+          const offX = parseFloat(uiImp.offsetX?.value||0);
+          const offY = parseFloat(uiImp.offsetY?.value||0);
+          rotated.x = Math.max(0, Math.min(WORLD_W, rotated.x + offX));
+          rotated.y = Math.max(0, Math.min(WORLD_H, rotated.y + offY));
+
+          // 畫軌跡與水波
+          const t = worldToTrack(rotated.x, rotated.y);
+          if(i>0 && lastT){
+            trackCtx.beginPath();
+            trackCtx.moveTo(lastT.x, lastT.y);
+            trackCtx.lineTo(t.x, t.y);
+            trackCtx.lineWidth = 2;
+            trackCtx.strokeStyle = 'red';
+            trackCtx.stroke();
+          }
+          lastT = t;
+          trackCtx.beginPath();
+          trackCtx.arc(t.x, t.y, 2.5, 0, Math.PI*2);
+          trackCtx.fillStyle = 'red';
+          trackCtx.fill();
+
+          dropAtWorldUnits(rotated.x, rotated.y, false);
+          try{ chan?.postMessage({ type:'drop', wxu:rotated.x, wyu:rotated.y, big:false, origin: WIN_ID }); }catch(e){}
+
+          if(i>0){
+            const a=pts[i-1];
+            const ay = this.axes.useZasY ? a.z : a.y;
+            traveled += Math.hypot((p.x-a.x),(ySel-ay)) || 1;
+          }
+          if(traveled/Math.max(1,totalLen) >= nextClickProg){
+            dropAtWorldUnits(rotated.x, rotated.y, true);
+            try{ chan?.postMessage({ type:'drop', wxu:rotated.x, wyu:rotated.y, big:true, origin: WIN_ID }); }catch(e){}
+            clickIdx++;
+            nextClickProg = (clickIdx+1)/(clickCount+1);
+          }
+
+          let dt = 28;
+          if(useZtime && i>0 && typeof p.z==='number' && typeof pts[i-1].z==='number'){
+            const raw = p.z - pts[i-1].z;
+            if(isFinite(raw)) dt = Math.max(5, Math.min(180, raw));
+          }
+          dt = dt / speed;
+          await new Promise(res=> setTimeout(res, dt));
+        }
+      }
+    }
+  }
+
+  const replayer = new ImportReplayer();
+  row.querySelector('#playJSON').addEventListener('click', async ()=>{
+    const f = uiImp.file.files[0];
+    if(!f){ alert('請先選取 JSON 檔'); return; }
+    const ok = await replayer.loadFile(f);
+    if(ok){ replayer.play(); }
+  });
+  row.querySelector('#stopJSON').addEventListener('click', ()=> { replayer.stop(); trackClear(); });
+})();
+</script>
+</body>
+</html>
